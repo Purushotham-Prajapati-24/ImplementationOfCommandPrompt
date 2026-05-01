@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { executeCommand } from '../core/engine';
 import { useTerminalStore } from '../store/terminalStore';
 import { getAutocomplete } from '../utils/autocomplete';
+import { NanoEditor } from '../core/nano';
 
 const Terminal: React.FC = () => {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -15,6 +16,10 @@ const Terminal: React.FC = () => {
   const inputBufferRef = useRef<string>('');
   const cursorIndexRef = useRef<number>(0);
   const historyIndexRef = useRef<number>(-1);
+  const nanoEditorRef = useRef<NanoEditor | null>(null);
+
+  const mode = useTerminalStore((state) => state.mode);
+  const nanoContext = useTerminalStore((state) => state.nanoContext);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -38,6 +43,19 @@ const Terminal: React.FC = () => {
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
+    const editor = new NanoEditor(term);
+    nanoEditorRef.current = editor;
+
+    const currentState = useTerminalStore.getState();
+    if (currentState.mode === 'nano' && currentState.nanoContext) {
+      editor.start(currentState.nanoContext.file, currentState.nanoContext.content);
+    }
+
+    const unsub = useTerminalStore.subscribe((state) => {
+      if (state.mode === 'nano' && state.nanoContext && !editor.isActive) {
+        editor.start(state.nanoContext.file, state.nanoContext.content);
+      }
+    });
 
     const printLine = (text: string) => {
       term.writeln(text);
@@ -45,7 +63,9 @@ const Terminal: React.FC = () => {
 
     const getPrompt = () => {
       const state = useTerminalStore.getState();
-      return `\r\n\x1b[1;32madmin@hyperos\x1b[0m:\x1b[1;34m${state.cwd}\x1b[0m$ `;
+      const user = state.env['USER'] || 'user';
+      const host = state.env['HOST'] || 'hyperos';
+      return `\r\n\x1b[1;32m${user}@${host}\x1b[0m:\x1b[1;34m${state.cwd}\x1b[0m$ `;
     };
 
     // Welcome Banner
@@ -57,6 +77,12 @@ const Terminal: React.FC = () => {
 
     // Advanced Keystroke Engine
     term.onData((data) => {
+      const currentState = useTerminalStore.getState();
+      if (currentState.mode === 'nano') {
+        nanoEditorRef.current?.handleInput(data);
+        return;
+      }
+
       const char = data;
       const buffer = inputBufferRef.current;
       const cursor = cursorIndexRef.current;
@@ -129,20 +155,45 @@ const Terminal: React.FC = () => {
           }
         }
       } else if (char === '\x03') { // Ctrl+C
+        if (term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+          return;
+        }
         term.writeln('^C');
         inputBufferRef.current = '';
         cursorIndexRef.current = 0;
         historyIndexRef.current = -1;
         term.write(getPrompt());
-      } else if (char.length === 1 && char.charCodeAt(0) >= 32) { // Printable Characters
-        const left = buffer.slice(0, cursor);
-        const right = buffer.slice(cursor);
-        inputBufferRef.current = left + char + right;
-        cursorIndexRef.current++;
-        
-        term.write(char + right);
-        if (right.length > 0) {
-          term.write('\b'.repeat(right.length));
+      } else if (char === '\x16') { // Ctrl+V
+        navigator.clipboard.readText().then((text) => {
+          const cleanChar = text.replace(/[\r\n]+/g, ' ').replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '');
+          if (cleanChar.length > 0) {
+            const left = inputBufferRef.current.slice(0, cursorIndexRef.current);
+            const right = inputBufferRef.current.slice(cursorIndexRef.current);
+            inputBufferRef.current = left + cleanChar + right;
+            cursorIndexRef.current += cleanChar.length;
+            
+            term.write(cleanChar + right);
+            if (right.length > 0) {
+              term.write('\b'.repeat(right.length));
+            }
+          }
+        }).catch(() => {
+          // Clipboard access denied or failed, ignore
+        });
+      } else if (!char.startsWith('\x1b')) { // Normal characters and Pasted Text
+        const cleanChar = char.replace(/[\r\n]+/g, ' ').replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '');
+        if (cleanChar.length > 0) {
+          const left = buffer.slice(0, cursor);
+          const right = buffer.slice(cursor);
+          inputBufferRef.current = left + cleanChar + right;
+          cursorIndexRef.current += cleanChar.length;
+          
+          term.write(cleanChar + right);
+          if (right.length > 0) {
+            term.write('\b'.repeat(right.length));
+          }
         }
       }
     });
@@ -154,6 +205,7 @@ const Terminal: React.FC = () => {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      unsub();
       window.removeEventListener('resize', handleResize);
       term.dispose();
     };

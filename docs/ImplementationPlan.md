@@ -97,6 +97,22 @@ src/
 2. **Integration Checkpoints:** After M1, verify typing/deleting. After M4, manual e2e testing.
 3. **Refactoring:** Keep `commands.js` decoupled. Commands accept `(args, state, terminal)` for testability.
 
+## STEP 6: PHASE 6 - ADVANCED EXECUTION & EDITOR (NEW)
+
+**Objective:** Escalate the MVP into a fully functional workspace with an in-terminal text editor and script execution.
+
+1. **In-Terminal Editor (`nano`)**:
+   - Implement an Alternate Screen Buffer (`\x1b[?1049h`).
+   - Create a 2D line buffer state machine to handle absolute cursor positioning.
+   - Support `Ctrl+X` to save and exit, writing content directly to the VFS.
+2. **Execution Engine (`node`)**:
+   - Compiling C (`gcc`) in a purely browser-based JS app requires heavy WebAssembly payloads (e.g., in-browser clang). Instead, we will implement a native Javascript Execution Engine (`node`).
+   - It will safely `eval` JS files stored in the VFS and pipe `console.log` back to the xterm terminal.
+3. **Network Requests (`curl`)**:
+   - Implement `curl` to fetch external APIs via browser fetch and print JSON/HTML.
+4. **Execution Permissions**:
+   - Support `./script.js` directly by parsing the shebang or file extension.
+
 ---
 
 ## STEP 7: CODING RULES

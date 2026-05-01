@@ -21,10 +21,15 @@ export interface DirNode extends BaseNode {
 
 export type VFSNode = FileNode | DirNode;
 
+export type TerminalMode = 'shell' | 'nano';
+
 interface TerminalState {
   fs: DirNode;
   cwd: string;
   history: string[];
+  mode: TerminalMode;
+  nanoContext: { file: string, content: string } | null;
+  env: Record<string, string>;
   
   // Getters
   getNode: (path: string) => VFSNode | null;
@@ -32,6 +37,8 @@ interface TerminalState {
   
   // Mutators
   setCwd: (path: string) => boolean;
+  setMode: (mode: TerminalMode, context?: { file: string, content: string } | null) => void;
+  setEnv: (key: string, value: string) => void;
   createNode: (path: string, type: NodeType, content?: string) => boolean;
   deleteNode: (path: string) => boolean;
   addToHistory: (cmd: string) => void;
@@ -47,7 +54,26 @@ const initialFS: DirNode = {
       type: 'file',
       name: 'README.md',
       createdAt: Date.now(),
-      content: 'Welcome to the Browser Terminal Emulator.\nThis is a safe sandbox to practice CLI commands.\n\nTry running "ls -l" or "mkdir -p tests/folder".',
+      content: 'Welcome to the Browser Terminal Emulator.\nThis is a safe sandbox to practice CLI commands.\n\nTry running "ls -l" or "nano newfile.js".',
+    },
+    'os_lab': {
+      type: 'dir',
+      name: 'os_lab',
+      createdAt: Date.now(),
+      children: {
+        'fcfs.js': {
+          type: 'file', name: 'fcfs.js', createdAt: Date.now(),
+          content: 'const p=[{id:1,bt:10},{id:2,bt:5},{id:3,bt:8}];\nlet t=0;\nconsole.log("--- FCFS CPU Scheduling ---");\np.forEach(x => { console.log(`P${x.id} starts at ${t}, finishes at ${t+x.bt}`); t+=x.bt; });'
+        },
+        'bankers.js': {
+          type: 'file', name: 'bankers.js', createdAt: Date.now(),
+          content: 'console.log("--- Bankers Algorithm ---");\nconsole.log("Allocated: [0,1,0], [2,0,0], [3,0,2]");\nconsole.log("Max: [7,5,3], [3,2,2], [9,0,2]");\nconsole.log("Safe Sequence: P1 -> P0 -> P2");'
+        },
+        'page_replacement.js': {
+           type: 'file', name: 'page_replacement.js', createdAt: Date.now(),
+           content: 'const pages=[1,3,0,3,5,6,3];\nlet mem=[], faults=0;\nconsole.log("--- FIFO Page Replacement ---");\npages.forEach(p => { if(!mem.includes(p)){ if(mem.length===3)mem.shift(); mem.push(p); faults++; console.log(`Fault for ${p}: [${mem}]`);} });\nconsole.log("Total Faults:", faults);'
+        }
+      }
     },
     'projects': {
       type: 'dir',
@@ -71,6 +97,9 @@ export const useTerminalStore = create<TerminalState>()(
       },
       cwd: '/root',
       history: [],
+      mode: 'shell',
+      nanoContext: null,
+      env: { USER: 'admin', HOST: 'hyperos' },
 
   getNode: (path: string) => {
     const { fs } = get();
@@ -101,6 +130,14 @@ export const useTerminalStore = create<TerminalState>()(
       return true;
     }
     return false;
+  },
+
+  setMode: (mode: TerminalMode, context: { file: string, content: string } | null = null) => {
+    set({ mode, nanoContext: context });
+  },
+
+  setEnv: (key: string, value: string) => {
+    set((state) => ({ env: { ...state.env, [key]: value } }));
   },
 
   createNode: (path: string, type: NodeType, content: string = '') => {
