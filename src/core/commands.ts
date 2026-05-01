@@ -337,12 +337,15 @@ export const commands: Record<string, CommandHandler> = {
     printLine(`  ${lines}  ${words} ${chars} ${target}`);
   },
 
-  gcc: (args, _flags, printLine, state) => {
+  gcc: (args, flags, printLine, state) => {
      if (args.length === 0) {
         printLine('gcc: fatal error: no input files');
         return;
      }
-     const file = args[0];
+
+     const fileIndex = args.findIndex(a => a.endsWith('.c'));
+     const file = fileIndex !== -1 ? args[fileIndex] : args[0];
+
      const node = state.getNode(file);
      if (!node || node.type !== 'file') {
         printLine(`gcc: error: ${file}: No such file or directory`);
@@ -350,9 +353,9 @@ export const commands: Record<string, CommandHandler> = {
      }
      
      let outName = 'a.out';
-     const oIndex = args.indexOf('-o');
-     if (oIndex !== -1 && args[oIndex + 1]) {
-        outName = args[oIndex + 1];
+     if (flags['o']) {
+        const outArg = args.find((a, i) => i !== fileIndex);
+        if (outArg) outName = outArg;
      }
 
      printLine(`\x1b[33mCompiling ${file}...\x1b[0m`);
@@ -402,6 +405,49 @@ export const commands: Record<string, CommandHandler> = {
      }
   },
 
+  ai: async (args, _flags, printLine, state) => {
+    if (args.length === 0) {
+      printLine('ai: missing query. Usage: ai <your question>');
+      return;
+    }
+    const query = args.join(' ');
+    printLine('\x1b[35m[AI Assistant thinking...]\x1b[0m');
+    
+    try {
+      const token = localStorage.getItem('hyperos_token');
+      const res = await fetch('http://localhost:5000/api/ai/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          query,
+          context: {
+             cwd: state.cwd,
+             history: state.history
+          }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to contact AI');
+      
+      const reply = data.reply || 'No response.';
+      reply.split('\n').forEach((line: string) => printLine(`\x1b[36m${line}\x1b[0m`));
+
+      if (data.command && data.command.toLowerCase() !== 'none') {
+         printLine(`\x1b[33m[AI Auto-Running Command: ${data.command}]\x1b[0m`);
+         const { executeCommand } = await import('./engine');
+         const commandsToRun = data.command.split('&&').map((c: string) => c.trim());
+         for (const cmd of commandsToRun) {
+             executeCommand(cmd, printLine);
+         }
+      }
+    } catch (err: any) {
+      printLine(`\x1b[31mai error: ${err.message}\x1b[0m`);
+    }
+  },
+
   help: (_args, _flags, printLine) => {
     printLine('\x1b[1;36mHyperOS Terminal - Available Commands\x1b[0m');
     printLine('--------------------------------------------------');
@@ -410,6 +456,7 @@ export const commands: Record<string, CommandHandler> = {
     printLine('\x1b[32mSystem Utility:\x1b[0m    clear, echo, date, whoami, uptime, history');
     printLine('\x1b[32mEnvironment:\x1b[0m       export, env (via export)');
     printLine('\x1b[32mNetwork & Dev:\x1b[0m     curl, node, gcc, os_sim');
+    printLine('\x1b[32mAI Assistant:\x1b[0m      ai <query>');
     printLine('\x1b[32mSystem Reset:\x1b[0m      reset (clears local storage cache)');
     printLine('--------------------------------------------------');
     printLine('Tip: You can use Output Redirection (>) and Tab Autocompletion!');
@@ -419,6 +466,7 @@ export const commands: Record<string, CommandHandler> = {
     printLine('\x1b[31mClearing terminal cache and resetting to factory defaults...\x1b[0m');
     setTimeout(() => {
       localStorage.removeItem('hyperos-vfs-storage');
+      localStorage.removeItem('hyperos_token');
       window.location.reload();
     }, 1000);
   }

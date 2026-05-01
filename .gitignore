@@ -25,3 +25,4 @@ dist-ssr
 
 # Agent's shared folder
 .agent
+server/.env

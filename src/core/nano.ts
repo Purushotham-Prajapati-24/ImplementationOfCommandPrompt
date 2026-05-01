@@ -27,6 +27,10 @@ export class NanoEditor {
     this.render();
   }
 
+  private isAIPrompting: boolean = false;
+  private aiPromptText: string = '';
+  private aiLoading: boolean = false;
+
   private render() {
     this.term.write('\x1b[?25l'); // Hide cursor
     this.term.write('\x1b[H'); // Move to 0,0
@@ -36,7 +40,7 @@ export class NanoEditor {
     this.term.write('\x1b[7m' + headerStr.padEnd(this.term.cols, ' ') + '\x1b[0m\r\n');
 
     // Body
-    const rows = this.term.rows - 3;
+    const rows = this.term.rows - 4; // leave extra row for footer
     for (let i = 0; i < rows; i++) {
       const line = this.lines[i] || '';
       // Truncate to terminal width for simple MVP
@@ -44,22 +48,58 @@ export class NanoEditor {
       this.term.write(displayLine + '\x1b[K\r\n');
     }
 
-    // Footer
-    this.term.write('\x1b[7m^X\x1b[0m Exit (Auto-Saves) \x1b[K');
+    // Footer - Prompt area
+    if (this.isAIPrompting) {
+      if (this.aiLoading) {
+         this.term.write('\x1b[1;35mAI Thinking...\x1b[0m\x1b[K\r\n');
+      } else {
+         this.term.write(`\x1b[1;36mAI Prompt:\x1b[0m ${this.aiPromptText}_\x1b[K\r\n`);
+      }
+    } else {
+      this.term.write('\x1b[K\r\n'); // empty line
+    }
+
+    // Footer - Shortcuts
+    const shortcuts = `^X Exit (Auto-Saves)   ^G AI Assistant`;
+    this.term.write('\x1b[7m' + shortcuts.padEnd(this.term.cols, ' ') + '\x1b[0m\x1b[K');
     
     // Move cursor to actual position (Y + 2 because of header)
-    this.term.write(`\x1b[${this.cursorY + 2};${this.cursorX + 1}H`);
-    
-    this.term.write('\x1b[?25h'); // Show cursor
+    if (!this.isAIPrompting) {
+       this.term.write(`\x1b[${this.cursorY + 2};${this.cursorX + 1}H`);
+       this.term.write('\x1b[?25h'); // Show cursor
+    }
   }
 
-  public handleInput(data: string) {
+  public async handleInput(data: string) {
     if (!this.isActive) return;
 
     if (data === '\x18') { // Ctrl+X
       this.exit();
       return;
     }
+
+    if (data === '\x07') { // Ctrl+G
+      this.isAIPrompting = !this.isAIPrompting;
+      this.aiPromptText = '';
+      this.render();
+      return;
+    }
+
+    if (this.isAIPrompting && !this.aiLoading) {
+      if (data === '\r') {
+         await this.submitAIPrompt();
+      } else if (data === '\u007F') { // Backspace
+         this.aiPromptText = this.aiPromptText.slice(0, -1);
+         this.render();
+      } else if (!data.startsWith('\x1b')) {
+         const cleanData = data.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '');
+         this.aiPromptText += cleanData;
+         this.render();
+      }
+      return;
+    }
+
+    if (this.isAIPrompting) return; // block normal input while loading AI
 
     if (data === '\x1b[A') { // Up
       if (this.cursorY > 0) {
@@ -124,6 +164,44 @@ export class NanoEditor {
     }
 
     this.render();
+  }
+
+  private async submitAIPrompt() {
+    this.aiLoading = true;
+    this.render();
+    try {
+      const state = useTerminalStore.getState();
+      const token = localStorage.getItem('hyperos_token');
+      const res = await fetch('http://localhost:5000/api/ai/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          query: this.aiPromptText,
+          context: {
+             cwd: state.cwd,
+             history: state.history,
+             fileName: this.file,
+             fileContent: this.lines.join('\n')
+          }
+        })
+      });
+      const data = await res.json();
+      if (data.file_content) {
+         this.lines = data.file_content.split('\n');
+         this.cursorY = 0;
+         this.cursorX = 0;
+      }
+    } catch (err) {
+      console.error("AI Error:", err);
+    } finally {
+      this.aiLoading = false;
+      this.isAIPrompting = false;
+      this.aiPromptText = '';
+      this.render();
+    }
   }
 
   private insertText(text: string) {

@@ -9,75 +9,80 @@ export const executeCommand = (input: string, printLine: (text: string) => void)
   const store = useTerminalStore.getState();
   store.addToHistory(input);
 
-  // Substitute Environment Variables (e.g., $USER)
-  const expandedInput = input.replace(/\$(\w+)/g, (_match, varName) => {
-    return store.env[varName] !== undefined ? store.env[varName] : '';
-  });
-
-  // Output Redirection parser (>)
-  let commandStr = expandedInput;
-  let outFile: string | null = null;
+  // Support native '&&' chaining
+  const commandsToRun = input.split('&&').map(c => c.trim()).filter(Boolean);
   
-  const redirectMatch = expandedInput.match(/^(.*)\s+>\s+([^\s]+)$/);
-  if (redirectMatch) {
-    commandStr = redirectMatch[1];
-    outFile = redirectMatch[2];
-  }
+  for (const cmdInput of commandsToRun) {
+    // Substitute Environment Variables (e.g., $USER)
+    const expandedInput = cmdInput.replace(/\$(\w+)/g, (_match, varName) => {
+      return store.env[varName] !== undefined ? store.env[varName] : '';
+    });
 
-  const parsed = parseCommand(commandStr);
-  if (!parsed) return;
-
-  const { command, args, flags } = parsed;
-  const handler = commands[command];
-
-  let outputBuffer = '';
-  const customPrintLine = (text: string) => {
-    if (outFile) {
-      outputBuffer += text + '\n';
-    } else {
-      printLine(text);
+    // Output Redirection parser (>)
+    let commandStr = expandedInput;
+    let outFile: string | null = null;
+    
+    const redirectMatch = expandedInput.match(/^(.*)\s+>\s+([^\s]+)$/);
+    if (redirectMatch) {
+      commandStr = redirectMatch[1];
+      outFile = redirectMatch[2];
     }
-  };
 
-  const finalizeRedirection = () => {
-    if (outFile) {
-      const node = store.getNode(outFile);
-      if (node && node.type === 'file') store.deleteNode(outFile);
-      store.createNode(outFile, 'file', outputBuffer.trimEnd());
-    }
-  };
+    const parsed = parseCommand(commandStr);
+    if (!parsed) continue;
 
-  if (command.startsWith('./')) {
-    const file = command.slice(2);
-    const node = store.getNode(file);
-    if (node && node.type === 'file') {
-      const result = commands['node']([file, ...args], flags, customPrintLine, store);
-      if (result instanceof Promise) {
-         result.finally(finalizeRedirection);
+    const { command, args, flags } = parsed;
+    const handler = commands[command];
+
+    let outputBuffer = '';
+    const customPrintLine = (text: string) => {
+      if (outFile) {
+        outputBuffer += text + '\n';
       } else {
-         finalizeRedirection();
+        printLine(text);
       }
-      return;
+    };
+
+    const finalizeRedirection = () => {
+      if (outFile) {
+        const node = store.getNode(outFile);
+        if (node && node.type === 'file') store.deleteNode(outFile);
+        store.createNode(outFile, 'file', outputBuffer.trimEnd());
+      }
+    };
+
+    if (command.startsWith('./')) {
+      const file = command.slice(2);
+      const node = store.getNode(file);
+      if (node && node.type === 'file') {
+        const result = commands['node']([file, ...args], flags, customPrintLine, store);
+        if (result instanceof Promise) {
+           result.finally(finalizeRedirection);
+        } else {
+           finalizeRedirection();
+        }
+        continue;
+      } else {
+        customPrintLine(`bash: ${command}: No such file or directory`);
+        finalizeRedirection();
+        continue;
+      }
+    }
+
+    if (handler) {
+      try {
+        const result = handler(args, flags, customPrintLine, store);
+        if (result instanceof Promise) {
+          result.finally(finalizeRedirection);
+          continue;
+        }
+      } catch (e: any) {
+        customPrintLine(`\x1b[31mError: ${e.message || 'Unknown error occurred'}\x1b[0m`);
+      }
     } else {
-      customPrintLine(`bash: ${command}: No such file or directory`);
-      finalizeRedirection();
-      return;
+      customPrintLine(`\x1b[31m${command}: command not found\x1b[0m`);
     }
-  }
 
-  if (handler) {
-    try {
-      const result = handler(args, flags, customPrintLine, store);
-      if (result instanceof Promise) {
-        result.finally(finalizeRedirection);
-        return;
-      }
-    } catch (e: any) {
-      customPrintLine(`\x1b[31mError: ${e.message || 'Unknown error occurred'}\x1b[0m`);
-    }
-  } else {
-    customPrintLine(`\x1b[31m${command}: command not found\x1b[0m`);
+    finalizeRedirection();
   }
-
-  finalizeRedirection();
 };
