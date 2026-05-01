@@ -17,7 +17,7 @@
 
 | **Authentication Portal** | **Command Center (Main Terminal)** |
 |:---:|:---:|
-| ![Login Screen](./docs/screenshots/login.png) | ![Terminal Screen](./docs/screenshots/terminal.png) |
+| ![Login Screen](docs/screenshots/login.png) | ![Terminal Screen](docs/screenshots/terminal.png) |
 | *Secure Cloud Access with JWT Auth* | *High-Performance UNIX-like Shell* |
 
 ---
@@ -32,7 +32,7 @@ HyperOS features a deeply integrated AI assistant powered by the **Groq LPU Infe
 
 | **AI Interaction Example** |
 |:---:|
-| ![AI Screen](./docs/screenshots/ai.png) |
+| ![AI Screen](docs/screenshots/ai.png) |
 | *AI writing, compiling, and running code autonomously* |
 
 ---
