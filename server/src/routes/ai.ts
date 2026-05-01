@@ -19,8 +19,9 @@ ${context?.fileName ? `Currently Opened File: ${context.fileName}\nFile Content:
 CRITICAL: You MUST respond in pure JSON format only. The JSON structure should be:
 {
   "reply": "Your conversational response to the user.",
-  "command": "Optional. If the user asks you to perform an action (like creating a file, writing code to a file, compiling, running, etc.), you MUST provide the exact terminal command to execute it here. To write code or text to a file from the terminal, you can use output redirection like \\\"echo 'code' > file.c\\\". DO NOT write 'none'. If no action is needed, OMIT this field entirely.",
-  "file_content": "Optional. If the user asked you to generate or edit the currently opened file, provide the COMPLETE new content for the file here. Do not use markdown backticks around the code in this field. Omit if not editing a file."
+  "command": "Optional. A terminal command to execute (e.g. 'gcc nano.c -o nano && ./nano'). DO NOT use 'echo' to write code to files. Use the file_name and file_content fields instead. OMIT if no command is needed.",
+  "file_name": "Optional. If you need to create or edit a file, provide the file name here (e.g. 'nano.c').",
+  "file_content": "Optional. The COMPLETE new content for the file. Provide the raw code without markdown backticks. OMIT if not writing a file."
 }`;
 
     const chatCompletion = await groq.chat.completions.create({

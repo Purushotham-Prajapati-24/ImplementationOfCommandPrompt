@@ -362,12 +362,16 @@ export const commands: Record<string, CommandHandler> = {
      
      // Very basic C-to-JS "transpiler" for simple demos
      let transpiled = node.content
-        .replace(/#include\s*<[^>]+>/g, '') // Remove includes
+        .replace(/#include\s*<[^>]+>\n?/g, '') // Remove includes
         .replace(/int\s+main\s*\([^)]*\)\s*{/g, '') // Remove main header
-        .replace(/return\s+0\s*;\s*}/g, '') // Remove return and closing brace
-        .replace(/}/g, '') // Remove any remaining braces (crude!)
-        .replace(/printf\s*\(\s*"([^"]+)"\s*\)\s*;/g, (_m, content) => {
-           // Convert printf to console.log, stripping trailing \n
+        .replace(/return\s+\d+\s*;/g, '') // Remove any return <number>;
+        .replace(/}\s*$/, '') // Remove the final closing brace of main
+        .replace(/\bint\s+/g, 'let ') // crude C type to JS let
+        .replace(/\bfloat\s+/g, 'let ')
+        .replace(/\bchar\s+/g, 'let ')
+        .replace(/\bdouble\s+/g, 'let ')
+        .replace(/printf\s*\(\s*"([^"]+)"(?:[^)]*)\)\s*;/g, (_m, content) => {
+           // Crude printf to console.log (ignores format args, just prints string)
            const clean = content.replace(/\\n$/, '');
            return `console.log("${clean}");`;
         });
@@ -434,6 +438,11 @@ export const commands: Record<string, CommandHandler> = {
       
       const reply = data.reply || 'No response.';
       reply.split('\n').forEach((line: string) => printLine(`\x1b[36m${line}\x1b[0m`));
+
+      if (data.file_name && data.file_content) {
+         state.createNode(data.file_name, 'file', data.file_content);
+         printLine(`\x1b[32m[AI Generated File: ${data.file_name}]\x1b[0m`);
+      }
 
       if (data.command && data.command.toLowerCase() !== 'none') {
          printLine(`\x1b[33m[AI Auto-Running Command: ${data.command}]\x1b[0m`);
